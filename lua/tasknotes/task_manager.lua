@@ -638,7 +638,8 @@ update_cache_file = function(filepath, task)
 end
 
 -- Update an existing task
-function M.update_task(filepath, updates)
+function M.update_task(filepath, updates, update_opts)
+  update_opts = update_opts or {}
   local parsed = parser.parse_file(filepath)
   if not parsed then
     vim.notify("Could not read task file: " .. filepath, vim.log.levels.ERROR)
@@ -655,7 +656,7 @@ function M.update_task(filepath, updates)
     path = filepath,
     updates = updates,
     frontmatter = parsed.frontmatter,
-    body = parsed.body,
+    body = update_opts.body ~= nil and update_opts.body or parsed.body,
     opts = opts,
     metadata = {},
   }
@@ -676,10 +677,12 @@ function M.update_task(filepath, updates)
     end
   end
 
-  -- Update frontmatter fields
+  -- Update frontmatter fields (body is never a frontmatter field)
   for key, value in pairs(updates) do
-    local fm_key = fm[key] or key
-    ctx.frontmatter[fm_key] = value
+    if key ~= "body" then
+      local fm_key = fm[key] or key
+      ctx.frontmatter[fm_key] = value
+    end
   end
 
   -- Update modification date
