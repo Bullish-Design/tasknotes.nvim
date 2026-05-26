@@ -8,6 +8,7 @@ local bases = require("bases")
 -- Task cache
 M.tasks = {}
 M.tasks_by_path = {}
+M.tasks_by_id = {}
 M.is_loaded = false -- Track if initial scan completed
 
 -- Helper to handle vim.NIL from YAML parser
@@ -448,9 +449,45 @@ function M.get_tasks(filter)
   return filtered
 end
 
+function M.generate_task_id(title)
+  local slug = (title or "task")
+    :lower()
+    :gsub("%s+", "-")
+    :gsub("[^%w%-]", "")
+    :gsub("%-+", "-")
+    :gsub("^%-", "")
+    :gsub("%-$", "")
+
+  if #slug > 40 then
+    slug = slug:sub(1, 40):gsub("%-$", "")
+  end
+
+  return "task-" .. os.date("!%Y%m%d%H%M%S") .. "-" .. slug
+end
+
 -- Get task by filepath
 function M.get_task_by_path(filepath)
   return M.tasks_by_path[filepath]
+end
+
+function M.get_task_by_id(id)
+  return M.tasks_by_id[id]
+end
+
+function M.resolve_task(ref)
+  if not ref then
+    return nil
+  end
+
+  if M.tasks_by_path[ref] then
+    return M.tasks_by_path[ref]
+  end
+
+  if M.tasks_by_id[ref] then
+    return M.tasks_by_id[ref]
+  end
+
+  return nil
 end
 
 -- Create a new task
