@@ -152,6 +152,8 @@ local defaults = {
 
   -- Lifecycle callbacks
   callbacks = {
+    after_setup = nil,
+
     before_task_create = nil,
     after_task_create = nil,
 
