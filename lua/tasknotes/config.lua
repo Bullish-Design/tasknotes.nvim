@@ -27,6 +27,7 @@ local defaults = {
 
   -- Field mapping (internal name -> frontmatter property name)
   field_mapping = {
+    id = "id",
     title = "title",
     status = "status",
     priority = "priority",
@@ -147,6 +148,23 @@ local defaults = {
     edit_task = "<leader>te",
     toggle_timer = "<leader>tt",
     view_selector = "<leader>tv", -- Global: open view selector
+  },
+
+  -- Lifecycle callbacks
+  callbacks = {
+    before_task_create = nil,
+    after_task_create = nil,
+
+    before_task_update = nil,
+    after_task_update = nil,
+
+    before_task_delete = nil,
+    after_task_delete = nil,
+
+    after_scan = nil,
+    after_refresh = nil,
+
+    on_task_open = nil,
   },
 }
 
