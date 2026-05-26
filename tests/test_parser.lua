@@ -1,7 +1,7 @@
 -- Tests for tasknotes.parser module
 local new_set = MiniTest.new_set
 local expect, eq = MiniTest.expect, MiniTest.expect.equality
-local helpers = require('tests.helpers')
+local helpers = require('tests.tasknotes_helpers')
 
 local child = helpers.new_child_neovim()
 

@@ -176,8 +176,9 @@ JSON
     clone_or_update "MunifTanjim/nui.nvim" "nui.nvim"
     clone_or_update "folke/snacks.nvim" "snacks.nvim"
 
-    # Test/dev dependency.
+    # Test/dev dependencies.
     clone_or_update "nvim-lua/plenary.nvim" "plenary.nvim"
+    clone_or_update "nvim-telescope/telescope.nvim" "telescope.nvim"
 
     # Optional date-picker backend from DATEPICKER_ADDITION.md.
     clone_or_update "Dzejkop/datepicker.nvim" "datepicker.nvim"
@@ -334,16 +335,13 @@ LUA
 
   scripts."tn-test".exec = ''
     set -euo pipefail
-    tn-init
     tn-deps
 
     root="''${TASKNOTES_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-    dev_dir="''${TASKNOTES_DEV_DIR:-$root/.devenv/nvim}"
 
     if [ -d "$root/tests" ]; then
-      nvim -u "$dev_dir/init.lua" --headless \
-        -c "PlenaryBustedDirectory tests { minimal_init = '$dev_dir/init.lua' }" \
-        -c "qa!"
+      nvim --headless --noplugin -u "$root/scripts/minimal_init.lua" \
+        -c "lua MiniTest.run()" 2>&1
     else
       echo "No ./tests directory found; running smoke test instead."
       tn-smoke

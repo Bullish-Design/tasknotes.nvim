@@ -12,6 +12,8 @@ M.tasks_by_path = {}
 M.tasks_by_id = {}
 M.is_loaded = false -- Track if initial scan completed
 
+local update_cache_file
+
 -- Helper to handle vim.NIL from YAML parser
 local function normalize_value(value, default)
   if value == nil or value == vim.NIL then
@@ -604,7 +606,7 @@ function M.create_task(task_data)
 end
 
 -- Helper function to update cache file
-local function update_cache_file(filepath, task)
+update_cache_file = function(filepath, task)
   local opts = config.get()
   if not opts.cache.enabled then
     return
@@ -843,9 +845,15 @@ function M.validate_cache_async()
 
               -- Update in-memory cache
               M.tasks_by_path[filepath] = task
+              if task.id then
+                M.tasks_by_id[task.id] = task
+              end
               local found = false
               for i, t in ipairs(M.tasks) do
                 if t.path == filepath then
+                  if t.id and t.id ~= task.id then
+                    M.tasks_by_id[t.id] = nil
+                  end
                   M.tasks[i] = task
                   found = true
                   break
@@ -871,7 +879,11 @@ function M.validate_cache_async()
             persistent_cache.tasks[cached_filepath] = nil
 
             -- Remove from in-memory cache
+            local removed_task = M.tasks_by_path[cached_filepath]
             M.tasks_by_path[cached_filepath] = nil
+            if removed_task and removed_task.id then
+              M.tasks_by_id[removed_task.id] = nil
+            end
             for i, t in ipairs(M.tasks) do
               if t.path == cached_filepath then
                 table.remove(M.tasks, i)

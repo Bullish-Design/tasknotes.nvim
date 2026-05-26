@@ -1,6 +1,6 @@
 local new_set = MiniTest.new_set
 local expect, eq = MiniTest.expect, MiniTest.expect.equality
-local helpers = require('tests.helpers')
+local helpers = require('tests.tasknotes_helpers')
 
 local child = helpers.new_child_neovim()
 local T = new_set({
@@ -10,7 +10,7 @@ local T = new_set({
   },
 })
 
-local function setup_with_callbacks(vault, callbacks)
+local function setup_with_callbacks(vault)
   child.lua(string.format([[
     Config=require('tasknotes.config')
     Config.setup({ vault_path='%s', callbacks=_G._callbacks })
@@ -73,6 +73,51 @@ T['hooks']['before_create mutation can override path'] = function()
   setup_with_callbacks(vault)
   local task = child.lua_get([[TM.create_task({ title = 'Mutate Path', tags = {'task'} })]])
   eq(task.path:match('%-moved%.md$') ~= nil, true)
+  helpers.cleanup_vault(child, vault)
+end
+
+T['hooks']['after_scan callback fires with task_count'] = function()
+  local vault = helpers.create_test_vault(child)
+  child.lua([[_G._callbacks = {
+    after_scan = function(ctx) _G.scan_count = ctx.task_count end,
+  }]])
+  setup_with_callbacks(vault)
+  child.lua([[TM.create_task({ title = 'Scan One', tags = {'task'} })]])
+  child.lua([[TM.scan_vault(true)]])
+  local count = child.lua_get([[_G.scan_count]])
+  eq(type(count), 'number')
+  eq(count >= 1, true)
+  helpers.cleanup_vault(child, vault)
+end
+
+T['hooks']['after_refresh callback fires with refreshed task'] = function()
+  local vault = helpers.create_test_vault(child)
+  child.lua([[_G._callbacks = {
+    after_refresh = function(ctx) _G.refresh_path = ctx.task and ctx.task.path or nil end,
+  }]])
+  setup_with_callbacks(vault)
+  local task = child.lua_get([[TM.create_task({ title = 'Refresh Hook', tags = {'task'} })]])
+  local ok = child.lua_get([[TM.refresh_task(...)]], { task.path })
+  eq(ok, true)
+  eq(child.lua_get([[_G.refresh_path]]), task.path)
+  helpers.cleanup_vault(child, vault)
+end
+
+T['hooks']['before_update mutation can change updates'] = function()
+  local vault = helpers.create_test_vault(child)
+  child.lua([[_G._callbacks = {
+    before_task_update = function(ctx)
+      ctx.updates.status = 'done'
+      ctx.updates.completedDate = '2026-01-01T00:00:00Z'
+    end,
+  }]])
+  setup_with_callbacks(vault)
+  local task = child.lua_get([[TM.create_task({ title = 'Mutate Update', tags = {'task'} })]])
+  local ok = child.lua_get([[TM.update_task(..., { status = 'open' })]], { task.path })
+  eq(ok, true)
+  local updated = child.lua_get([[TM.get_task_by_path(...)]], { task.path })
+  eq(updated.status, 'done')
+  eq(updated.completedDate, '2026-01-01T00:00:00Z')
   helpers.cleanup_vault(child, vault)
 end
 
