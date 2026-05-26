@@ -456,10 +456,10 @@ M.task_manager = task_manager
 M.config = config
 
 function M.create_task_programmatic(task_data) return task_manager.create_task(task_data) end
-function M.update_task(ref, updates)
+function M.update_task(ref, updates, update_opts)
   local task = task_manager.resolve_task(ref)
   if not task then vim.notify("Task not found: " .. tostring(ref), vim.log.levels.ERROR); return false end
-  return task_manager.update_task(task.path, updates)
+  return task_manager.update_task(task.path, updates, update_opts)
 end
 function M.delete_task(ref)
   local task = task_manager.resolve_task(ref)
