@@ -275,6 +275,7 @@ function M.create_task_object(filepath, frontmatter, body)
   -- Extract mapped fields with proper vim.NIL handling
   local task = {
     path = filepath,
+    id = normalize_value(frontmatter[fm.id], nil),
     title = normalize_value(frontmatter[fm.title], ""),
     status = normalize_value(frontmatter[fm.status], "open"),
     priority = normalize_value(frontmatter[fm.priority], "none"),
