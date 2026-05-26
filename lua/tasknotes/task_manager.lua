@@ -90,6 +90,7 @@ function M.scan_vault(force_validate)
 
   M.tasks = {}
   M.tasks_by_path = {}
+  M.tasks_by_id = {}
 
   -- Try to load cache if enabled
   local cache_path = get_cache_path()
@@ -125,6 +126,9 @@ function M.scan_vault(force_validate)
 
         table.insert(M.tasks, task)
         M.tasks_by_path[filepath] = task
+        if task.id then
+          M.tasks_by_id[task.id] = task
+        end
       end
     end
 
@@ -134,6 +138,9 @@ function M.scan_vault(force_validate)
       for _, task in ipairs(M.tasks) do
         task.urgency = urgency.calculate_urgency(task, opts, nil, false)
         M.tasks_by_path[task.path] = task
+        if task.id then
+          M.tasks_by_id[task.id] = task
+        end
       end
     end
 
@@ -196,6 +203,9 @@ function M.scan_vault(force_validate)
 
         table.insert(M.tasks, task)
         M.tasks_by_path[filepath] = task
+        if task.id then
+          M.tasks_by_id[task.id] = task
+        end
         files_from_cache = files_from_cache + 1
       end
     else
@@ -206,6 +216,9 @@ function M.scan_vault(force_validate)
           local task = M.create_task_object(filepath, parsed.frontmatter, parsed.body)
           table.insert(M.tasks, task)
           M.tasks_by_path[filepath] = task
+          if task.id then
+            M.tasks_by_id[task.id] = task
+          end
 
           -- Update cache
           persistent_cache.tasks[filepath] = {
@@ -261,6 +274,9 @@ function M.scan_vault(force_validate)
       task.urgency = urgency.calculate_urgency(task, opts, nil, false)
       -- Update in tasks_by_path as well
       M.tasks_by_path[task.path] = task
+      if task.id then
+        M.tasks_by_id[task.id] = task
+      end
     end
   end
 
@@ -541,8 +557,11 @@ function M.create_task(task_data)
 
   -- Add to cache
   local task = M.create_task_object(filepath, frontmatter, task_data.body)
-  table.insert(M.tasks, task)
-  M.tasks_by_path[filepath] = task
+              table.insert(M.tasks, task)
+              M.tasks_by_path[filepath] = task
+              if task.id then
+                M.tasks_by_id[task.id] = task
+              end
 
   vim.notify("Created task: " .. filename, vim.log.levels.INFO)
   return task
