@@ -164,6 +164,13 @@ function M.browse_tasks(opts)
       confirm = function(item)
         if item and item.file then
           vim.cmd("edit " .. item.file)
+          local hooks = require("tasknotes.hooks")
+          local task = require("tasknotes.task_manager").get_task_by_path(item.file)
+          if task then
+            local ctx = { operation = "open", task = task, path = item.file, opts = require("tasknotes.config").get(), metadata = {} }
+            hooks.run_callback("on_task_open", ctx)
+            hooks.emit(hooks.events.TASK_OPEN, ctx)
+          end
         end
       end,
 

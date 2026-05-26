@@ -177,6 +177,16 @@ function M.new_task()
       }, function(choice)
         if choice == "Yes" then
           vim.cmd("edit " .. task.path)
+          local hooks = require("tasknotes.hooks")
+          local ctx = {
+            operation = "open",
+            task = task,
+            path = task.path,
+            opts = require("tasknotes.config").get(),
+            metadata = { source = "create" },
+          }
+          hooks.run_callback("on_task_open", ctx)
+          hooks.emit(hooks.events.TASK_OPEN, ctx)
         end
       end)
     end

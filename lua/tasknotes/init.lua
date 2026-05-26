@@ -2,6 +2,17 @@ local M = {}
 
 local config = require("tasknotes.config")
 local task_manager = require("tasknotes.task_manager")
+local hooks = require("tasknotes.hooks")
+
+local function open_task_file(filepath)
+  vim.cmd("edit " .. filepath)
+  local task = task_manager.get_task_by_path(filepath)
+  if task then
+    local ctx = { operation = "open", task = task, path = filepath, opts = config.get(), metadata = {} }
+    hooks.run_callback("on_task_open", ctx)
+    hooks.emit(hooks.events.TASK_OPEN, ctx)
+  end
+end
 
 -- Check dependencies
 local function check_dependencies()
@@ -158,6 +169,8 @@ function M.setup(user_config)
     )
   end
 
+  hooks.run_callback("after_setup", { operation = "setup", opts = opts, metadata = {} })
+  hooks.emit(hooks.events.SETUP_POST, { operation = "setup", opts = opts, metadata = {} })
   vim.notify("TaskNotes loaded", vim.log.levels.INFO)
 end
 
@@ -382,7 +395,7 @@ function M.goto_blocking_tasks()
   end
 
   if #blocking_tasks == 1 then
-    vim.cmd("edit " .. blocking_tasks[1].path)
+    open_task_file(blocking_tasks[1].path)
     return
   end
 
@@ -396,7 +409,7 @@ function M.goto_blocking_tasks()
     prompt = "Select blocking task:",
   }, function(choice, idx)
     if idx then
-      vim.cmd("edit " .. blocking_tasks[idx].path)
+      open_task_file(blocking_tasks[idx].path)
     end
   end)
 end
@@ -419,7 +432,7 @@ function M.goto_blocked_tasks()
   end
 
   if #blocked_tasks == 1 then
-    vim.cmd("edit " .. blocked_tasks[1].path)
+    open_task_file(blocked_tasks[1].path)
     return
   end
 
@@ -433,7 +446,7 @@ function M.goto_blocked_tasks()
     prompt = "Select blocked task:",
   }, function(choice, idx)
     if idx then
-      vim.cmd("edit " .. blocked_tasks[idx].path)
+      open_task_file(blocked_tasks[idx].path)
     end
   end)
 end
@@ -441,5 +454,21 @@ end
 -- Export public API
 M.task_manager = task_manager
 M.config = config
+
+function M.create_task_programmatic(task_data) return task_manager.create_task(task_data) end
+function M.update_task(ref, updates)
+  local task = task_manager.resolve_task(ref)
+  if not task then vim.notify("Task not found: " .. tostring(ref), vim.log.levels.ERROR); return false end
+  return task_manager.update_task(task.path, updates)
+end
+function M.delete_task(ref)
+  local task = task_manager.resolve_task(ref)
+  if not task then vim.notify("Task not found: " .. tostring(ref), vim.log.levels.ERROR); return false end
+  return task_manager.delete_task(task.path)
+end
+function M.get_task(ref) return task_manager.resolve_task(ref) end
+function M.get_task_by_id(id) return task_manager.get_task_by_id(id) end
+function M.get_task_by_path(path) return task_manager.get_task_by_path(path) end
+function M.get_all_tasks(filter) return task_manager.get_tasks(filter) end
 
 return M
