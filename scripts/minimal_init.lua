@@ -7,26 +7,45 @@ vim.cmd([[let &rtp.=','.getcwd()]])
 -- Set up 'mini.test' only when calling headless Neovim
 if #vim.api.nvim_list_uis() == 0 then
   -- Add required dependencies to runtimepath
+  -- devenv places plugins under .devenv/nvim/site/pack/tasknotes/start/
+  local devenv_pack = vim.fn.getcwd() .. '/.devenv/nvim/site/pack/tasknotes/start'
+
   local dependencies = {
     {
       name = "mini.nvim",
       paths = {
+        devenv_pack .. '/mini.nvim',
         vim.fn.stdpath('data') .. '/lazy/mini.nvim',
         vim.fn.stdpath('data') .. '/site/pack/deps/start/mini.nvim',
-        vim.fn.stdpath('data') .. '/site/pack/*/start/mini.nvim',
       },
       required = true,
     },
     {
       name = "bases.nvim",
       paths = {
+        devenv_pack .. '/bases.nvim',
         -- Local development path (same parent directory)
         vim.fn.fnamemodify(vim.fn.getcwd(), ':h') .. '/bases.nvim',
         -- Plugin manager paths
         vim.fn.stdpath('data') .. '/lazy/bases.nvim',
-        vim.fn.stdpath('data') .. '/site/pack/*/start/bases.nvim',
       },
       required = true,
+    },
+    {
+      name = "plenary.nvim",
+      paths = {
+        devenv_pack .. '/plenary.nvim',
+        vim.fn.stdpath('data') .. '/lazy/plenary.nvim',
+      },
+      required = false,
+    },
+    {
+      name = "telescope.nvim",
+      paths = {
+        devenv_pack .. '/telescope.nvim',
+        vim.fn.stdpath('data') .. '/lazy/telescope.nvim',
+      },
+      required = false,
     },
   }
 
@@ -51,6 +70,7 @@ Searched paths:
     end
   end
 
-  -- Setup mini.test
-  require('mini.test').setup()
+  -- Setup mini.test and expose the module globally for tests.
+  _G.MiniTest = require('mini.test')
+  _G.MiniTest.setup()
 end

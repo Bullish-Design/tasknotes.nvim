@@ -4,11 +4,15 @@ local config = require("tasknotes.config")
 local parser = require("tasknotes.parser")
 local cache_module = require("tasknotes.cache")
 local bases = require("bases")
+local hooks = require("tasknotes.hooks")
 
 -- Task cache
 M.tasks = {}
 M.tasks_by_path = {}
+M.tasks_by_id = {}
 M.is_loaded = false -- Track if initial scan completed
+
+local update_cache_file
 
 -- Helper to handle vim.NIL from YAML parser
 local function normalize_value(value, default)
@@ -77,6 +81,18 @@ local function build_find_command(vault_path, ignore_dirs)
   return cmd
 end
 
+local function emit_scan_complete(opts, force_validate)
+  local ctx = {
+    operation = "scan",
+    tasks = M.tasks,
+    task_count = #M.tasks,
+    opts = opts,
+    metadata = { force_validate = force_validate or false },
+  }
+  hooks.run_callback("after_scan", ctx)
+  hooks.emit(hooks.events.TASK_SCAN_POST, ctx)
+end
+
 -- Scan vault and discover all task files
 function M.scan_vault(force_validate)
   local opts = config.get()
@@ -89,6 +105,7 @@ function M.scan_vault(force_validate)
 
   M.tasks = {}
   M.tasks_by_path = {}
+  M.tasks_by_id = {}
 
   -- Try to load cache if enabled
   local cache_path = get_cache_path()
@@ -124,6 +141,9 @@ function M.scan_vault(force_validate)
 
         table.insert(M.tasks, task)
         M.tasks_by_path[filepath] = task
+        if task.id then
+          M.tasks_by_id[task.id] = task
+        end
       end
     end
 
@@ -133,6 +153,9 @@ function M.scan_vault(force_validate)
       for _, task in ipairs(M.tasks) do
         task.urgency = urgency.calculate_urgency(task, opts, nil, false)
         M.tasks_by_path[task.path] = task
+        if task.id then
+          M.tasks_by_id[task.id] = task
+        end
       end
     end
 
@@ -149,6 +172,7 @@ function M.scan_vault(force_validate)
     end
 
     M.is_loaded = true
+    emit_scan_complete(opts, force_validate)
     return
   end
 
@@ -195,6 +219,9 @@ function M.scan_vault(force_validate)
 
         table.insert(M.tasks, task)
         M.tasks_by_path[filepath] = task
+        if task.id then
+          M.tasks_by_id[task.id] = task
+        end
         files_from_cache = files_from_cache + 1
       end
     else
@@ -205,6 +232,9 @@ function M.scan_vault(force_validate)
           local task = M.create_task_object(filepath, parsed.frontmatter, parsed.body)
           table.insert(M.tasks, task)
           M.tasks_by_path[filepath] = task
+          if task.id then
+            M.tasks_by_id[task.id] = task
+          end
 
           -- Update cache
           persistent_cache.tasks[filepath] = {
@@ -260,10 +290,14 @@ function M.scan_vault(force_validate)
       task.urgency = urgency.calculate_urgency(task, opts, nil, false)
       -- Update in tasks_by_path as well
       M.tasks_by_path[task.path] = task
+      if task.id then
+        M.tasks_by_id[task.id] = task
+      end
     end
   end
 
   M.is_loaded = true
+  emit_scan_complete(opts, force_validate)
 end
 
 -- Create a task object from frontmatter
@@ -274,6 +308,7 @@ function M.create_task_object(filepath, frontmatter, body)
   -- Extract mapped fields with proper vim.NIL handling
   local task = {
     path = filepath,
+    id = normalize_value(frontmatter[fm.id], nil),
     title = normalize_value(frontmatter[fm.title], ""),
     status = normalize_value(frontmatter[fm.status], "open"),
     priority = normalize_value(frontmatter[fm.priority], "none"),
@@ -448,9 +483,45 @@ function M.get_tasks(filter)
   return filtered
 end
 
+function M.generate_task_id(title)
+  local slug = (title or "task")
+    :lower()
+    :gsub("%s+", "-")
+    :gsub("[^%w%-]", "")
+    :gsub("%-+", "-")
+    :gsub("^%-", "")
+    :gsub("%-$", "")
+
+  if #slug > 40 then
+    slug = slug:sub(1, 40):gsub("%-$", "")
+  end
+
+  return "task-" .. os.date("!%Y%m%d%H%M%S") .. "-" .. slug
+end
+
 -- Get task by filepath
 function M.get_task_by_path(filepath)
   return M.tasks_by_path[filepath]
+end
+
+function M.get_task_by_id(id)
+  return M.tasks_by_id[id]
+end
+
+function M.resolve_task(ref)
+  if not ref then
+    return nil
+  end
+
+  if M.tasks_by_path[ref] then
+    return M.tasks_by_path[ref]
+  end
+
+  if M.tasks_by_id[ref] then
+    return M.tasks_by_id[ref]
+  end
+
+  return nil
 end
 
 -- Create a new task
@@ -482,6 +553,9 @@ function M.create_task(task_data)
   frontmatter[fm.blockedBy] = task_data.blockedBy or {}
   frontmatter[fm.dateCreated] = os.date("!%Y-%m-%dT%H:%M:%SZ")
   frontmatter[fm.dateModified] = frontmatter[fm.dateCreated]
+  if fm.id then
+    frontmatter[fm.id] = task_data.id or M.generate_task_id(task_data.title)
+  end
 
   -- Validate dependencies if provided
   if task_data.blockedBy and #task_data.blockedBy > 0 then
@@ -494,24 +568,45 @@ function M.create_task(task_data)
     end
   end
 
-  -- Write file
-  local success, err = parser.write_file(filepath, frontmatter, task_data.body or "")
+  local ctx = {
+    operation = "create",
+    task_data = task_data,
+    frontmatter = frontmatter,
+    body = task_data.body or "",
+    path = filepath,
+    opts = opts,
+    metadata = {},
+  }
+  local ret = hooks.run_callback("before_task_create", ctx)
+  if ret == false or ctx.cancel then
+    vim.notify(ctx.error or "Task creation cancelled", vim.log.levels.WARN)
+    return nil
+  end
+  frontmatter = ctx.frontmatter
+  filepath = ctx.path
+
+  local success, err = parser.write_file(filepath, frontmatter, ctx.body)
   if not success then
     vim.notify(err, vim.log.levels.ERROR)
     return nil
   end
 
   -- Add to cache
-  local task = M.create_task_object(filepath, frontmatter, task_data.body)
+  local task = M.create_task_object(filepath, frontmatter, ctx.body)
   table.insert(M.tasks, task)
   M.tasks_by_path[filepath] = task
+  if task.id then M.tasks_by_id[task.id] = task end
+  update_cache_file(filepath, task)
+  ctx.task = task
+  hooks.run_callback("after_task_create", ctx)
+  hooks.emit(hooks.events.TASK_CREATE_POST, ctx)
 
   vim.notify("Created task: " .. filename, vim.log.levels.INFO)
   return task
 end
 
 -- Helper function to update cache file
-local function update_cache_file(filepath, task)
+update_cache_file = function(filepath, task)
   local opts = config.get()
   if not opts.cache.enabled then
     return
@@ -543,7 +638,8 @@ local function update_cache_file(filepath, task)
 end
 
 -- Update an existing task
-function M.update_task(filepath, updates)
+function M.update_task(filepath, updates, update_opts)
+  update_opts = update_opts or {}
   local parsed = parser.parse_file(filepath)
   if not parsed then
     vim.notify("Could not read task file: " .. filepath, vim.log.levels.ERROR)
@@ -552,6 +648,24 @@ function M.update_task(filepath, updates)
 
   local opts = config.get()
   local fm = opts.field_mapping
+  local old_task = M.get_task_by_path(filepath)
+  local ctx = {
+    operation = "update",
+    task = old_task,
+    old_task = old_task and vim.deepcopy(old_task) or nil,
+    path = filepath,
+    updates = updates,
+    frontmatter = parsed.frontmatter,
+    body = update_opts.body ~= nil and update_opts.body or parsed.body,
+    opts = opts,
+    metadata = {},
+  }
+  local ret = hooks.run_callback("before_task_update", ctx)
+  if ret == false or ctx.cancel then
+    vim.notify(ctx.error or "Task update cancelled", vim.log.levels.WARN)
+    return false
+  end
+  updates = ctx.updates
 
   -- Validate dependencies if being updated
   if updates.blockedBy then
@@ -563,25 +677,28 @@ function M.update_task(filepath, updates)
     end
   end
 
-  -- Update frontmatter fields
+  -- Update frontmatter fields (body is never a frontmatter field)
   for key, value in pairs(updates) do
-    local fm_key = fm[key] or key
-    parsed.frontmatter[fm_key] = value
+    if key ~= "body" then
+      local fm_key = fm[key] or key
+      ctx.frontmatter[fm_key] = value
+    end
   end
 
   -- Update modification date
-  parsed.frontmatter[fm.dateModified] = os.date("!%Y-%m-%dT%H:%M:%SZ")
+  ctx.frontmatter[fm.dateModified] = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
   -- Write back to file
-  local success, err = parser.write_file(filepath, parsed.frontmatter, parsed.body)
+  local success, err = parser.write_file(filepath, ctx.frontmatter, ctx.body)
   if not success then
     vim.notify(err, vim.log.levels.ERROR)
     return false
   end
 
   -- Update in-memory cache
-  local task = M.create_task_object(filepath, parsed.frontmatter, parsed.body)
+  local task = M.create_task_object(filepath, ctx.frontmatter, ctx.body)
   M.tasks_by_path[filepath] = task
+  if task.id then M.tasks_by_id[task.id] = task end
 
   -- Update in tasks array
   for i, t in ipairs(M.tasks) do
@@ -593,12 +710,28 @@ function M.update_task(filepath, updates)
 
   -- Update persistent cache
   update_cache_file(filepath, task)
+  ctx.task = task
+  hooks.run_callback("after_task_update", ctx)
+  hooks.emit(hooks.events.TASK_UPDATE_POST, ctx)
 
   return true
 end
 
 -- Delete a task
 function M.delete_task(filepath)
+  local task = M.get_task_by_path(filepath)
+  local ctx = {
+    operation = "delete",
+    task = task,
+    path = filepath,
+    opts = config.get(),
+    metadata = {},
+  }
+  local ret = hooks.run_callback("before_task_delete", ctx)
+  if ret == false or ctx.cancel then
+    vim.notify(ctx.error or "Task deletion cancelled", vim.log.levels.WARN)
+    return false
+  end
   -- Remove file
   local success = os.remove(filepath)
   if not success then
@@ -608,6 +741,7 @@ function M.delete_task(filepath)
 
   -- Remove from in-memory cache
   M.tasks_by_path[filepath] = nil
+  if task and task.id then M.tasks_by_id[task.id] = nil end
   for i, task in ipairs(M.tasks) do
     if task.path == filepath then
       table.remove(M.tasks, i)
@@ -617,6 +751,8 @@ function M.delete_task(filepath)
 
   -- Remove from persistent cache
   update_cache_file(filepath, nil)
+  hooks.run_callback("after_task_delete", ctx)
+  hooks.emit(hooks.events.TASK_DELETE_POST, ctx)
 
   vim.notify("Deleted task", vim.log.levels.INFO)
   return true
@@ -635,6 +771,7 @@ function M.refresh_task(filepath)
 
   local task = M.create_task_object(filepath, parsed.frontmatter, parsed.body)
   M.tasks_by_path[filepath] = task
+  if task.id then M.tasks_by_id[task.id] = task end
 
   -- Update in tasks array
   local found = false
@@ -652,6 +789,9 @@ function M.refresh_task(filepath)
 
   -- Update cache
   update_cache_file(filepath, task)
+  local ctx = { operation = "refresh", task = task, path = filepath, opts = config.get(), metadata = {} }
+  hooks.run_callback("after_refresh", ctx)
+  hooks.emit(hooks.events.TASK_REFRESH_POST, ctx)
 
   return true
 end
@@ -708,9 +848,15 @@ function M.validate_cache_async()
 
               -- Update in-memory cache
               M.tasks_by_path[filepath] = task
+              if task.id then
+                M.tasks_by_id[task.id] = task
+              end
               local found = false
               for i, t in ipairs(M.tasks) do
                 if t.path == filepath then
+                  if t.id and t.id ~= task.id then
+                    M.tasks_by_id[t.id] = nil
+                  end
                   M.tasks[i] = task
                   found = true
                   break
@@ -736,7 +882,11 @@ function M.validate_cache_async()
             persistent_cache.tasks[cached_filepath] = nil
 
             -- Remove from in-memory cache
+            local removed_task = M.tasks_by_path[cached_filepath]
             M.tasks_by_path[cached_filepath] = nil
+            if removed_task and removed_task.id then
+              M.tasks_by_id[removed_task.id] = nil
+            end
             for i, t in ipairs(M.tasks) do
               if t.path == cached_filepath then
                 table.remove(M.tasks, i)
@@ -929,6 +1079,7 @@ function M.clear_cache()
       -- Clear in-memory cache and trigger fresh scan
       M.tasks = {}
       M.tasks_by_path = {}
+      M.tasks_by_id = {}
       M.is_loaded = false
       M.scan_vault(true)
     else

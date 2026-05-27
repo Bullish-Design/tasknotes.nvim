@@ -27,6 +27,7 @@ local defaults = {
 
   -- Field mapping (internal name -> frontmatter property name)
   field_mapping = {
+    id = "id",
     title = "title",
     status = "status",
     priority = "priority",
@@ -71,6 +72,22 @@ local defaults = {
     task_form_height = 20,
     time_tracker_width = 50,
     time_tracker_height = 15,
+
+    form_backend = "input-form",
+    fallback_to_nui = true,
+
+    date_picker = {
+      enabled = true,
+      backend = "datepicker.nvim",
+      fallback_backend = "text",
+      format = "%Y-%m-%d",
+      week_start = "monday",
+      keymaps = {
+        open = "<C-d>",
+        clear = "<C-x>",
+        today = "<C-t>",
+      },
+    },
   },
 
   -- Picker configuration
@@ -148,7 +165,27 @@ local defaults = {
     toggle_timer = "<leader>tt",
     view_selector = "<leader>tv", -- Global: open view selector
   },
+
+  -- Lifecycle callbacks
+  callbacks = {
+    after_setup = nil,
+
+    before_task_create = nil,
+    after_task_create = nil,
+
+    before_task_update = nil,
+    after_task_update = nil,
+
+    before_task_delete = nil,
+    after_task_delete = nil,
+
+    after_scan = nil,
+    after_refresh = nil,
+
+    on_task_open = nil,
+  },
 }
+M.defaults = defaults
 
 -- Current configuration
 M.options = {}

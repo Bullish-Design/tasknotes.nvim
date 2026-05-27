@@ -36,13 +36,47 @@ function M.parse_yaml(yaml_str)
   return M.parse_yaml_basic(yaml_str)
 end
 
+-- Parse a scalar value string into the appropriate Lua type
+local function parse_scalar(value)
+  if not value or value == "" or value == "null" then
+    return nil
+  end
+  -- Remove quotes
+  local unquoted = value:match('^"(.-)"$') or value:match("^'(.-)'$")
+  if unquoted then
+    return unquoted
+  end
+  -- Boolean
+  if value == "true" then return true end
+  if value == "false" then return false end
+  -- Number
+  if value:match("^%-?%d+%.?%d*$") then
+    return tonumber(value)
+  end
+  return value
+end
+
+-- Parse an inline flow array like [a, b, c]
+local function parse_inline_array(str)
+  local inner = str:match("^%[(.-)%]$")
+  if not inner then return nil end
+  local items = {}
+  for item in inner:gmatch("[^,]+") do
+    item = item:gsub("^%s+", ""):gsub("%s+$", "")
+    if item ~= "" then
+      table.insert(items, parse_scalar(item))
+    end
+  end
+  return items
+end
+
 -- Basic YAML parser for simple frontmatter (handles most TaskNotes cases)
 function M.parse_yaml_basic(yaml_str)
   local result = {}
   local lines = vim.split(yaml_str, "\n")
   local current_key = nil
   local current_list = nil
-  local in_multiline = false
+  local current_object = nil -- tracks the current nested object in a list
 
   for _, line in ipairs(lines) do
     -- Skip empty lines and comments
@@ -50,64 +84,82 @@ function M.parse_yaml_basic(yaml_str)
       goto continue
     end
 
+    -- Indented key-value pair (part of a nested object inside a list item)
+    local indent = line:match("^(%s+)")
+    if indent and #indent >= 4 and current_object then
+      local nested_key, nested_val = line:match("^%s+([%w_]+):%s*(.*)$")
+      if nested_key then
+        nested_val = nested_val:gsub("^%s+", ""):gsub("%s+$", "")
+        current_object[nested_key] = parse_scalar(nested_val)
+        goto continue
+      end
+    end
+
     -- List item
-    if line:match("^%s*%-%s+") then
-      local value = line:match("^%s*%-%s+(.+)$")
+    if line:match("^%s*%-%s") then
+      current_object = nil
       if current_key and current_list then
-        -- Trim quotes if present
-        value = value:match('^"(.-)"$') or value:match("^'(.-)'$") or value
-        table.insert(current_list, value)
+        -- Check for list item with key-value (e.g. "  - startTime: value")
+        local item_key, item_val = line:match("^%s*%-%s+([%w_]+):%s*(.*)$")
+        if item_key then
+          -- Start of a nested object in the list
+          current_object = {}
+          item_val = item_val:gsub("^%s+", ""):gsub("%s+$", "")
+          current_object[item_key] = parse_scalar(item_val)
+          table.insert(current_list, current_object)
+        else
+          -- Simple list item
+          local value = line:match("^%s*%-%s+(.+)$")
+          if value then
+            value = value:gsub("^%s+", ""):gsub("%s+$", "")
+            table.insert(current_list, parse_scalar(value))
+          end
+        end
       end
       goto continue
     end
 
-    -- Key-value pair
+    -- Top-level key-value pair
     local key, value = line:match("^([%w_]+):%s*(.*)$")
     if key then
       current_key = key
+      current_list = nil
+      current_object = nil
+      value = value:gsub("^%s+", ""):gsub("%s+$", "")
 
       if value == "" or value == "null" then
-        -- Empty value or null
+        -- Empty value means either null or start of a block list/object
+        -- We set up for a potential list; if no list items follow, it stays nil
         result[key] = nil
-        current_list = nil
+        current_list = {}
+        result[key] = current_list
       elseif value == "[]" then
-        -- Empty array
         result[key] = {}
-        current_list = nil
       else
-        -- Try to parse value
-        value = value:gsub("^%s+", ""):gsub("%s+$", "") -- trim
-
-        -- Remove quotes
-        local unquoted = value:match('^"(.-)"$') or value:match("^'(.-)'$")
-        if unquoted then
-          result[key] = unquoted
-          current_list = nil
-        -- Boolean
-        elseif value == "true" then
-          result[key] = true
-          current_list = nil
-        elseif value == "false" then
-          result[key] = false
-          current_list = nil
-        -- Number
-        elseif value:match("^%-?%d+%.?%d*$") then
-          result[key] = tonumber(value)
-          current_list = nil
-        -- Start of array (indicated by no value after colon)
-        elseif value == "" then
-          result[key] = {}
-          current_list = result[key]
+        -- Check for inline array [a, b, c]
+        local inline = parse_inline_array(value)
+        if inline then
+          result[key] = inline
         else
-          -- String value
-          result[key] = value
-          current_list = nil
+          result[key] = parse_scalar(value)
         end
       end
       goto continue
     end
 
     ::continue::
+  end
+
+  -- Clean up keys that were set to empty tables but never got list items
+  for k, v in pairs(result) do
+    if type(v) == "table" and #v == 0 and next(v) == nil then
+      -- Check if the original YAML had "[]" explicitly — keep those.
+      -- Otherwise this was an empty-value key that got no children, so nil it.
+      local pattern = k .. ":%s*%[%]"
+      if not yaml_str:match(pattern) then
+        result[k] = nil
+      end
+    end
   end
 
   return result
