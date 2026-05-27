@@ -72,6 +72,22 @@ local defaults = {
     task_form_height = 20,
     time_tracker_width = 50,
     time_tracker_height = 15,
+
+    form_backend = "input-form",
+    fallback_to_nui = true,
+
+    date_picker = {
+      enabled = true,
+      backend = "datepicker.nvim",
+      fallback_backend = "text",
+      format = "%Y-%m-%d",
+      week_start = "monday",
+      keymaps = {
+        open = "<C-d>",
+        clear = "<C-x>",
+        today = "<C-t>",
+      },
+    },
   },
 
   -- Picker configuration
