@@ -15,7 +15,7 @@ local function open_task_file(filepath)
 end
 
 -- Check dependencies
-local function check_dependencies()
+local function check_dependencies(user_config)
   local errors = {}
   local warnings = {}
 
@@ -42,24 +42,43 @@ local function check_dependencies()
     end
   end
 
-  -- Check for nui.nvim (REQUIRED)
-  local has_nui = pcall(require, "nui.popup")
-  if not has_nui then
-    table.insert(errors, "nui.nvim not found - This is a required dependency!")
-    table.insert(errors, "  Install: https://github.com/MunifTanjim/nui.nvim")
-  end
+  local defaults = require("tasknotes.config").defaults or {}
+  local preview = vim.tbl_deep_extend("force", defaults, user_config or {})
 
-  -- Check for snacks (REQUIRED)
+  -- snacks.nvim (optional warning)
   local has_snacks = pcall(require, "snacks")
   if not has_snacks then
-    table.insert(errors, "snacks.nvim not found - This is a required dependency!")
-    table.insert(errors, "  Install: https://github.com/folke/snacks.nvim")
+    table.insert(warnings, "snacks.nvim not found - task picker will be unavailable")
   end
 
-  -- Check for plenary (optional but recommended)
-  local has_plenary = pcall(require, "plenary")
-  if not has_plenary then
-    table.insert(warnings, "plenary.nvim not found - some features may not work optimally")
+  local form_backend = preview.ui and preview.ui.form_backend or "input-form"
+  local fallback_to_nui = preview.ui and preview.ui.fallback_to_nui
+
+  if form_backend == "input-form" then
+    local has_input_form = pcall(require, "input-form")
+    if not has_input_form then
+      local has_nui = pcall(require, "nui.popup")
+      if fallback_to_nui ~= false and has_nui then
+        table.insert(warnings, "input-form.nvim not found - falling back to NUI form")
+      elseif fallback_to_nui == false then
+        table.insert(warnings, "input-form.nvim not found and NUI fallback disabled - task form unavailable")
+      else
+        table.insert(warnings, "input-form.nvim not found - install it or nui.nvim for task forms")
+      end
+    end
+  elseif form_backend == "nui" then
+    local has_nui = pcall(require, "nui.popup")
+    if not has_nui then
+      table.insert(warnings, "nui.nvim not found - task form will be unavailable")
+    end
+  end
+
+  local dp = preview.ui and preview.ui.date_picker
+  if dp and dp.enabled ~= false and dp.backend == "datepicker.nvim" then
+    local has_datepicker = pcall(require, "datepicker")
+    if not has_datepicker then
+      table.insert(warnings, "datepicker.nvim not found - date fields will use text input fallback")
+    end
   end
 
   return errors, warnings
@@ -80,16 +99,12 @@ function M.setup(user_config)
   user_config = user_config or {}
 
   -- Check dependencies FIRST
-  local errors, warnings = check_dependencies()
+  local errors, warnings = check_dependencies(user_config)
 
   -- Fail hard if critical dependencies are missing
   if #errors > 0 then
-    local error_msg = "TaskNotes: Critical dependencies missing!\n\n"
-    for _, err in ipairs(errors) do
-      error_msg = error_msg .. err .. "\n"
-    end
-    error_msg = error_msg .. "\nSee README.md for installation instructions."
-    error(error_msg)
+    vim.notify("TaskNotes:\n" .. table.concat(errors, "\n"), vim.log.levels.ERROR)
+    return
   end
 
   -- Show warnings for optional dependencies

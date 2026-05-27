@@ -185,6 +185,7 @@ local defaults = {
     on_task_open = nil,
   },
 }
+M.defaults = defaults
 
 -- Current configuration
 M.options = {}
