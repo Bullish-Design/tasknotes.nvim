@@ -229,24 +229,14 @@ end
 
 -- Create new task
 function M.new_task()
-  local has_nui = pcall(require, "nui.popup")
-  if has_nui then
-    local task_form = require("tasknotes.ui.task_form")
-    task_form.new_task()
-  else
-    vim.notify("NUI not available - cannot create task form", vim.log.levels.ERROR)
-  end
+  local task_form = require("tasknotes.ui.task_form")
+  task_form.new_task()
 end
 
 -- Edit current buffer task
 function M.edit_task()
-  local has_nui = pcall(require, "nui.popup")
-  if has_nui then
-    local task_form = require("tasknotes.ui.task_form")
-    task_form.edit_current_buffer()
-  else
-    vim.notify("NUI not available - cannot create task form", vim.log.levels.ERROR)
-  end
+  local task_form = require("tasknotes.ui.task_form")
+  task_form.edit_current_buffer()
 end
 
 -- Toggle timer for current task
