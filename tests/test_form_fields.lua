@@ -26,12 +26,17 @@ end
 T['create_task_fields returns expected field names'] = function()
   local vault = helpers.create_test_vault(child)
   setup_cfg(vault)
-  local names = child.lua_get([[
+  child.lua([[
     local fields = FF.create_task_fields({}, { mode='create' })
     local out = {}
-    for _, f in ipairs(fields) do if f.name then table.insert(out, f.name) end end
-    return out
+    for _, f in ipairs(fields) do
+      if f.name then
+        table.insert(out, f.name)
+      end
+    end
+    _G._form_field_names = out
   ]])
+  local names = child.lua_get([[_G._form_field_names]])
   eq(names, { 'title', 'status', 'priority', 'due', 'scheduled', 'contexts', 'projects', 'tags', 'blockedBy', 'timeEstimate', 'body' })
   helpers.cleanup_vault(child, vault)
 end
@@ -39,13 +44,17 @@ end
 T['create_task_fields uses select and multiline types with defaults and features'] = function()
   local vault = helpers.create_test_vault(child)
   setup_cfg(vault)
-  local result = child.lua_get([[
+  child.lua([[
     local fields = FF.create_task_fields({
-      title='T', status='open', priority='high', body='note', contexts={'home'}
-    }, { mode='edit' })
+      title = 'T', status = 'open', priority = 'high', body = 'note', contexts = { 'home' }
+    }, { mode = 'edit' })
     local by = {}
-    for _, f in ipairs(fields) do if f.name then by[f.name] = f end end
-    return {
+    for _, f in ipairs(fields) do
+      if f.name then
+        by[f.name] = f
+      end
+    end
+    _G._form_field_summary = {
       status_type = by.status.type,
       priority_type = by.priority.type,
       body_type = by.body.type,
@@ -54,6 +63,7 @@ T['create_task_fields uses select and multiline types with defaults and features
       contexts_has_complete = by.contexts.complete ~= nil,
     }
   ]])
+  local result = child.lua_get([[_G._form_field_summary]])
   eq(result.status_type, 'select')
   eq(result.priority_type, 'select')
   eq(result.body_type, 'multiline')
@@ -66,14 +76,15 @@ end
 T['form_values_to_task_data normalizes values and returns body separately'] = function()
   local vault = helpers.create_test_vault(child)
   setup_cfg(vault)
-  local out = child.lua_get([[
+  child.lua([[
     local data, body = FF.form_values_to_task_data({
-      title='T', status='open', priority='none', due='', scheduled='',
-      contexts='a, b', projects='p1, p2', tags='x, y', blockedBy='',
-      timeEstimate='45', body='details'
+      title = 'T', status = 'open', priority = 'none', due = '', scheduled = '',
+      contexts = 'a, b', projects = 'p1, p2', tags = 'x, y', blockedBy = '',
+      timeEstimate = '45', body = 'details'
     })
-    return { data = data, body = body, has_body = data.body ~= nil }
+    _G._form_values_result = { data = data, body = body, has_body = data.body ~= nil }
   ]])
+  local out = child.lua_get([[_G._form_values_result]])
   eq(out.data.due, nil)
   eq(out.data.scheduled, nil)
   eq(out.data.contexts, { 'a', 'b' })
